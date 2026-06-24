@@ -22,7 +22,7 @@
 
 <div class="container">
     <h1>🔴 Live USDT TRC20 Whale Transfers (Minimal $10,000)</h1>
-    <p>Memantau transaksi besar di jaringan TRON secara live (offchain monitoring).</p>
+    <p>Memantau transaksi besar di jaringan TRON secara live via client-side API.</p>
     
     <table>
         <thead>
@@ -40,38 +40,59 @@
 </div>
 
 <script>
-    // Koneksikan ke backend Node.js menggunakan WebSocket
-    const ws = new WebSocket('ws://localhost:3000');
+    const USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+    const MIN_AMOUNT = 10000;
+    let lastTimestamp = Date.now();
     const tableBody = document.getElementById('tx-table-body');
 
-    ws.onmessage = (event) => {
-        const tx = JSON.parse(event.data);
-        
-        // Format waktu
-        const date = new Date(tx.timestamp).toLocaleTimeString();
+    async function fetchUSDTTransactions() {
+        try {
+            const url = `https://api.trongrid.io/v1/contracts/${USDT_CONTRACT}/events?event_name=Transfer&order_by=block_timestamp,asc&min_timestamp=${lastTimestamp}`;
+            const response = await fetch(url);
+            const resData = await response.json();
+            
+            if (resData && resData.data) {
+                const transfers = resData.data;
+                
+                transfers.forEach(tx => {
+                    const rawValue = tx.result.value || tx.result.amount;
+                    const amountClean = parseFloat(rawValue) / 1000000;
+                    
+                    if (amountClean >= MIN_AMOUNT) {
+                        const date = new Date(tx.block_timestamp).toLocaleTimeString();
+                        
+                        // Cek apakah TxID sudah ada di tabel agar tidak duplikat
+                        if (!document.getElementById(tx.transaction_id)) {
+                            const row = document.createElement('tr');
+                            row.id = tx.transaction_id;
+                            row.innerHTML = `
+                                <td>${date}</td>
+                                <td class="amount">$${amountClean.toLocaleString()} USDT</td>
+                                <td class="address">${tx.result.from.substring(0,6)}...${tx.result.from.substring(tx.result.from.length - 6)}</td>
+                                <td class="address">${tx.result.to.substring(0,6)}...${tx.result.to.substring(tx.result.to.length - 6)}</td>
+                                <td class="hash"><a href="https://tronscan.org/#/transaction/${tx.transaction_id}" target="_blank">Buka TronScan ↗</a></td>
+                            `;
+                            tableBody.insertBefore(row, tableBody.firstChild);
+                        }
+                    }
+                    
+                    if (tx.block_timestamp >= lastTimestamp) {
+                        lastTimestamp = tx.block_timestamp + 1;
+                    }
+                });
 
-        // Buat baris baru di tabel
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${date}</td>
-            <td class="amount">$${tx.amount.toLocaleString()} USDT</td>
-            <td class="address">${tx.from.substring(0,6)}...${tx.from.substring(tx.from.length - 6)}</td>
-            <td class="address">${tx.to.substring(0,6)}...${tx.to.substring(tx.to.length - 6)}</td>
-            <td class="hash"><a href="https://tronscan.org/#/transaction/${tx.txHash}" target="_blank">Buka TronScan ↗</a></td>
-        `;
-
-        // Masukkan ke baris paling atas agar yang terbaru selalu terlihat pertama
-        tableBody.insertBefore(row, tableBody.firstChild);
-
-        // Batasi baris tabel maksimal 50 agar website tidak lag
-        if (tableBody.children.length > 50) {
-            tableBody.removeChild(tableBody.lastChild);
+                while (tableBody.children.length > 50) {
+                    tableBody.removeChild(tableBody.lastChild);
+                }
+            }
+        } catch (error) {
+            console.error("Gagal memuat data blockchain:", error);
         }
-    };
+    }
 
-    ws.onclose = () => {
-        console.log("Koneksi terputus ke server backend.");
-    };
+    // Jalankan pooling langsung dari browser setiap 5 detik
+    setInterval(fetchUSDTTransactions, 5000);
+    fetchUSDTTransactions(); // Panggilan awal saat web dimuat
 </script>
 </body>
 </html>
